@@ -16,3 +16,7 @@ The goal of this specific project was to create a 3D printer that could produce 
 ![4](https://user-images.githubusercontent.com/25541886/236719355-abd92706-5dab-4a5b-8712-e0a36eb629cd.jpg)
 
 ![5](https://user-images.githubusercontent.com/25541886/236719368-4e193d09-70af-479a-9afe-c0c0c82ac3f0.jpg)
+
+https://www.youtube.com/watch?v=K8g_ENS-b1k
+
+https://www.thingiverse.com/thing:206925
