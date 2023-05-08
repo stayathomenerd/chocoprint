@@ -1,0 +1,804 @@
+/*
+MAIN PROGRAM
+This program is design to offer complete manual and automatic control of a three axis (+extruder stepper axis) CNC system. Manual mode is available as long as the automatic program is not running. The press of a pushbutton initializes the automatic program, at which time and LED indicating that autonomous mode is active. In auto mode, the X, Y, and Z-axes will report to a "home position". This is defined as the X, Y & Z coordinates that activate the corresponding limit switches. After the limit switches are triggered, the extruder head centers itself and begin a predesignated geometric shape. It will run one predefined shape loop and stop. If the button is pressed again, it will create another shape, slightly higher than the last one.
+*/
+
+//Initializing 4 Potentiometer analog inputs, one for each stepper and one for a Force Sensitve Resistor (FSR). The FSR is used to detect when the extruder is empty, and prevents the extrusion loop from beginning again
+
+const int PotPinY = 1;              
+const int PotPinX = 0;
+const int PotPinZ = 2;
+const int PotPinE = 3;
+const int Pressure_sensor = 4;
+
+const int motorY = 11;          //declare Y motor output and direction control
+const int dirY = 10;
+
+const int motorX = 13;          //declare X motor output and direction control
+const int dirX = 12;
+
+const int motorZ = 9;          //declare Z motor output and direction control
+const int dirZ = 8;
+
+const int motorE = 34;        //declare Extruder motor output and direction control
+const int dirE = 36;
+
+const int pushbutton = 33;        //initialize pushbutton state variables and autonomous LED output
+const int autoLED = 22;
+int buttonState = LOW;
+int previousButtonState = LOW;
+int LEDstate = HIGH;
+
+int PotReadingY = 0;            //Stores potentiometer input readings used to control individual stepper motor direction
+int PotReadingX = 0;
+int PotReadingZ = 0;
+int PotReadingE = 0;
+int Pressure = 0;              //Stores FSR reading (0-1023)
+int freq=900;                  //Standard Stepper motor frequency for ease of uniform adjustment
+const int LEDY = 22;
+const int LEDX = 24;
+const int LEDZ = 26;
+const int LEDE = 28;
+int Zstep = 100;                  //motor time to increment Z height
+int travel_time = 3000;           //travel time in X and Y directions (in milliseconds) (used to create square, rectangle, ect.)
+
+const int xlimit = 30;  //interrupt 0             //XYZ limit switches (used for setting home position)
+const int ylimit = 31;  //interrupt 1
+const int zlimit = 32;//interrupt 2
+
+int xstate = 0;                             //Stores digital limit switch state (0 or 1)
+int ystate = 0;
+int zstate = 0;
+
+int counterx = 0;                  //Axis counter increments when limit switch is activated, this prevents the code from reentering the home loop after the position initialization
+int countery = 0;
+int counterz = 0;
+int counter_center = 0;
+
+
+void setup()
+{
+  Serial.begin(9600);                //Sets up Serial library at 9600 bps
+  
+  pinMode(motorY, OUTPUT);            //Declaring all motor direction and power as outputs, as well as directional indicating LEDs
+  pinMode(dirY, OUTPUT);
+  pinMode(motorX, OUTPUT);
+  pinMode(dirX, OUTPUT);
+  pinMode(motorZ, OUTPUT);
+  pinMode(dirZ, OUTPUT);
+  pinMode(motorE, OUTPUT);
+  pinMode(dirE, OUTPUT);
+  pinMode(LEDY, OUTPUT);
+  pinMode(LEDX, OUTPUT);
+  pinMode(LEDZ, OUTPUT);
+  pinMode(LEDE, OUTPUT);
+  
+  pinMode(autoLED, OUTPUT);        //Declaring autonomous LED and pushbutton modes
+  pinMode(pushbutton, INPUT); 
+  
+  pinMode(xlimit, INPUT);       // left switch pin an input (redundant, but reduces confusion and sources of error
+  pinMode(ylimit, INPUT);      // right switch pin an input
+  pinMode(zlimit, INPUT);       // left switch pin an input
+  
+
+}
+  
+  void loop()
+ {
+                               
+   //digitalWrite(motorE, HIGH);                  //Defaults extruder motor to the off position right away
+   
+   PotReadingY = analogRead(PotPinY);          //Read potentiometer inputs right away and store their values to the apporpriate variable
+   PotReadingX = analogRead(PotPinX);
+   PotReadingZ = analogRead(PotPinZ);
+   PotReadingE = analogRead(PotPinE);
+   Pressure = analogRead(Pressure_sensor);     //Read and store pressure sensor reading, used as a loop qualifier
+   
+   xstate=digitalRead(xlimit);                 //read and store limit switch state (should all be 0 in the beginning, unless head is already located on one)
+   ystate=digitalRead(ylimit);
+   zstate=digitalRead(zlimit);
+    
+   //Serial.println(PotReadingY);              //Used for multiple diagnostic purposes, checking limit switches and potentiometer outputs
+   //Serial.println(PotReadingX);
+   //Serial.println(PotReadingZ);
+   //Serial.println(PotReadingE);
+   //Serial.println(xstate);
+   //Serial.println(ystate);
+   //Serial.println(zstate);
+   Serial.println(Pressure);
+   
+  
+  buttonState = digitalRead(pushbutton);                       //Read pushbutton state and store in state variable
+  
+   if (buttonState == HIGH && previousButtonState == LOW)      //Enter if loop that turns on button state and LED if the button was previously not depressed
+    {
+    digitalWrite(autoLED, LEDstate);  
+    
+    if (LEDstate == LOW)
+    {
+      LEDstate = HIGH;
+    }
+    else
+    {
+      LEDstate = LOW;
+    }
+   } 
+   previousButtonState = buttonState;          //BEGINNING OF AUTONOMOUS MODE
+     
+    if(buttonState == HIGH)                  //enter if loop if the button is in the HIGH state, this is the homing loop
+    {
+   
+       while(xstate == 0 && counterx == 0)
+      {
+        digitalWrite(dirX, LOW);              //Essentially this loop checks to make sure the x limit switch is not depressed and the homing loop has not been previously entered.
+        tone(motorX, freq);                  //If both conditions are satisfied, the X motor is tone in the negative direction until the X limit swtich is depressed, at which the loop is exited and the motor is shut off
+        xstate=digitalRead(xlimit);
+        //Serial.println(xstate);
+      }
+      
+      noTone(motorX);                        //Increments counterx so the x homing loop is not entered again
+      counterx = 1;
+    
+      while(ystate == 0 && countery == 0)      //The same loop conditions for the Y axis as before for the X axis limit switch, enters loop until Y limit swtich depressed
+      {
+         digitalWrite(dirY, HIGH);
+        tone(motorY, freq);
+        
+        ystate=digitalRead(ylimit);
+        //Serial.println(ystate);
+      }
+      
+      noTone(motorY);
+      countery =1;
+
+    while(zstate == 0 && counterz == 0)      //The same loop conditions for the Y axis as before for the X axis limit switch, enters loop until Y limit swtich depressed
+      {
+         digitalWrite(dirZ, LOW);
+        tone(motorZ, 250);
+        
+        zstate=digitalRead(zlimit);
+        //Serial.println(zstate);
+      }
+      
+      noTone(motorZ);
+      counterz =1;
+     
+    while(counter_center == 0)            //Enters centering loop which centers extruder head on board. Again it uses a counter to only run once
+  {  
+      digitalWrite(dirX, HIGH);           //Starting in a known location everytime allows us to know run the X and Y motor for predescribed times, resulting in the same location every time
+      tone(motorX, freq);
+      delay(5000);
+      noTone(motorX);
+      delay(250);
+      tone(motorY, freq);
+      digitalWrite(dirY,LOW);
+      delay(5000);
+      noTone(motorY);
+      counter_center=1;        //Increments the center counter to 1 so the centering loop will not be entered again
+      delay(500);
+      
+  } 
+      
+    // while(Pressure<750)               //Running the autonomous printing loop, as long as the extruder head pressure is below a specified amount. The loop turns on the extruder motor at the beginning and turns it off
+     //{                                //After one complete loop, the extruder motor stops and waits for instructions. The X and Y motors are activated in alternating order and direction, printing a square.
+                                       //The time travelled in each direction is specified by the variable "travel_time". The Z axis is incremented up after each square, with the height controlled by the variable Z_step
+     digitalWrite(motorE, LOW); 
+     delay(750);
+     
+     digitalWrite(dirY, LOW);                 //y low = up
+     tone(motorY, freq);
+     delay(travel_time);
+     noTone(motorY);
+     
+     digitalWrite(dirX, HIGH);              // x high = right
+     tone(motorX, freq);
+     delay(travel_time);
+     noTone(motorX);
+         
+     digitalWrite(dirY,HIGH);
+     tone(motorY,freq);
+     delay(travel_time);           //move in neg/pos Y direction for 10 seconds
+     noTone(motorY);
+        
+     digitalWrite(dirX,LOW);
+     tone(motorX,freq);
+     delay(travel_time);           //move in neg/pos X direction for 10 seconds
+     noTone(motorX);
+     digitalWrite(motorE, HIGH);
+     
+     
+     digitalWrite(dirZ,HIGH);        //Increment Z height
+     tone(motorZ,freq);
+     delay(Zstep);
+     noTone(motorZ);
+    }
+     
+   if (PotReadingY<400)           
+    {       
+      digitalWrite(dirY, HIGH);
+      tone(motorY, freq); 
+      digitalWrite(LEDY,HIGH);
+     
+    }
+    
+     else if(PotReadingY>800)            //if pot turned to right, move to right, turn right directional led to high, reset left limit switch & led to low
+    {
+    
+      digitalWrite(dirY, LOW);
+      tone(motorY, freq);
+      digitalWrite(LEDY,HIGH);
+    }
+       else
+    {
+      
+       noTone(motorY);
+       digitalWrite(LEDY, LOW);
+    }
+          
+  if (PotReadingX<400)                 //BEGINNING OF MANUAL CONTROL
+    {                                  //The manual control loops use potentiometers to control the direction and output of the stepper motors, which allows for manual positioning
+      digitalWrite(dirX, HIGH);        //The potentiometers rotate a certain amount, that assigns a range of 0-1023 for each position. This allows the assignment of a range of pot values to go a certain direction
+      tone(motorX, freq);             //If you turn the pot one way, the corresponding head turns that way, if you turn the pot the other way, it moves the other way. If you keep it in the middle, it stays stationary
+      digitalWrite(LEDX,HIGH);        //If a motor is moving in either direction, a corresponding LED will light up letting you know that axis is active
+     
+    }
+    
+     else if(PotReadingX>800)            //if pot turned to right, move to right, turn right directional led to high, reset left limit switch & led to low
+    {
+    
+      digitalWrite(dirX, LOW);
+      tone(motorX, freq);
+      digitalWrite(LEDX,HIGH);
+    }
+       else
+    {
+      
+       noTone(motorX);
+       digitalWrite(LEDX, LOW);
+    }
+      
+ 
+  if (PotReadingZ<400)           
+    {       
+      digitalWrite(dirZ, HIGH);
+      tone(motorZ, 250); 
+      digitalWrite(LEDZ,HIGH);
+     
+    }
+    
+     else if(PotReadingZ>800)            //if pot turned to right, move to right, turn right directional led to high, reset left limit switch & led to low
+    {
+    
+      digitalWrite(dirZ, LOW);
+      tone(motorZ, 250);
+      digitalWrite(LEDZ,HIGH);
+    }
+       else
+    {
+      
+       noTone(motorZ);
+       digitalWrite(LEDZ, LOW);
+    }
+    
+    
+    if (PotReadingE<400)           
+    {       
+     digitalWrite(motorE, LOW);
+     digitalWrite(dirE, LOW);
+     digitalWrite(LEDE, HIGH);
+      
+    }
+    
+     else if(PotReadingE>800)            //if pot turned to right, move to right, turn right directional led to high, reset left limit switch & led to low
+    {
+    
+      digitalWrite(LEDE, HIGH);
+      digitalWrite(dirE, HIGH);
+      digitalWrite(motorE, LOW);
+    }
+       else
+    {
+      
+       digitalWrite(motorE, HIGH);
+       digitalWrite(LEDE, LOW);
+    }
+    
+   }     
+
+
+
+/*
+X-Axis Check Program
+This code checks the x axis movement of the fireball. it inputs the x pot reading and stores and prints it in a variable to monitor the location of the pot.
+*/
+
+const int PotPinX = 1;
+
+int PotReadingX = 0;
+
+const int LEDX = 28;
+const int motorX = 11;          //declare motor output and direction control
+const int dirX = 10;
+int freq=500;
+
+void setup ()
+{
+  pinMode(LEDX, OUTPUT);        //initialize motor and LED outputs
+  pinMode(motorX, OUTPUT);
+  pinMode(dirX, OUTPUT);
+  Serial.begin(9600);
+  
+
+}
+
+void loop()
+{
+  PotReadingX = analogRead(PotPinX);
+  
+  Serial.println(PotReadingX);           //read and store and print pot values
+  
+  if (PotReadingX<400)                   //if pot turned left, move right, turn X led to high
+    {       
+      digitalWrite(dirX, HIGH);        
+      tone(motorX, freq); 
+      digitalWrite(LEDX, HIGH);
+      delay(50);
+     
+    }
+    
+     else if(PotReadingX>800)             //if pot turned right, move left , turn X led to high         
+    {
+    
+      digitalWrite(dirX, LOW);
+      tone(motorX, freq);
+      digitalWrite(LEDX, HIGH);
+      delay(50);
+    }
+       else
+    {
+      
+       noTone(motorX);
+       digitalWrite(LEDX, LOW);            //turn motor off and turn LED off
+    }
+}
+
+
+
+/*
+Y-Axis Check Program
+This code checks the y axis movement of the fireball. it inputs the y pot reading and stores and prints it in a variable to monitor the location of the pot.
+*/
+
+const int PotPinY = 0;
+
+int PotReadingY;
+
+const int LEDY = 22;
+const int motorY = 13;          //declare motor output and direction control
+const int dirY = 12;
+int freq=500;
+
+
+void setup ()
+{
+  pinMode(LEDY, OUTPUT);        //initialize motor and LED outputs
+  Serial.begin(9600);
+   pinMode(motorY, OUTPUT);
+  pinMode(dirY, OUTPUT);
+
+}
+
+void loop()
+{
+  PotReadingY = analogRead(PotPinY);      //read and store and print pot values
+  Serial.println(PotReadingY);
+  
+  if (PotReadingY<400)             //if pot turned to left, move up, turn Y led to high
+    {       
+      digitalWrite(dirY, HIGH);
+      tone(motorY, freq); 
+      digitalWrite(LEDY, HIGH);
+      delay(50);
+     
+    }
+    
+     else if(PotReadingY>800)            //if pot turned to right, move down, turn Y led to high
+    {
+    
+      digitalWrite(dirY, LOW);
+      tone(motorY, freq);
+      digitalWrite(LEDY, HIGH);
+      delay(50);
+    }
+       else
+    {
+      
+       noTone(motorY);                //turn motor off and turn LED off
+       digitalWrite(LEDY, LOW);
+    }
+}
+
+
+/*
+Z-Axis Check Program
+This code checks the z axis movement of the fireball. it inputs the z pot reading and stores and prints it in a variable to monitor the location of the pot.
+*/
+
+const int PotPinZ = 2;
+
+const int motorZ = 9;          //declare motor output and direction control
+const int dirZ = 8;
+const int LEDZ = 26;
+
+int PotReadingZ = 0;
+int freq=500;
+
+
+void setup()
+{
+  Serial.begin(9600);          //initialize motor and LED outputs
+pinMode(LEDZ, OUTPUT);
+ pinMode(motorZ, OUTPUT);
+  pinMode(dirZ, OUTPUT);
+}
+
+void loop()
+{
+  PotReadingZ = analogRead(PotPinZ);          //read and store and print pot values
+  
+  Serial.println(PotReadingZ);
+  
+  if (PotReadingZ<400)                            //if pot turned left, move to up, turn Z led to high
+    {       
+      digitalWrite(dirZ, HIGH);
+      tone(motorZ, freq); 
+      digitalWrite(LEDZ,HIGH);
+      delay(50);
+     
+    }
+    
+     else if(PotReadingZ>800)             //if pot turned to right, move down, turn Y led to high
+    {
+    
+      digitalWrite(dirZ, LOW);
+      tone(motorZ, freq);
+      digitalWrite(LEDZ,HIGH);
+      delay(50);
+    }
+       else
+    {
+      
+       noTone(motorZ);                             //turn motor off and turn LED off
+       digitalWrite(LEDZ, LOW);
+    }
+   }   
+
+
+/*
+Limit Switch Check Program
+This code checks all the limit switches together. This ensures that all the switches and all the code can work simultaneously with each other.
+*/
+
+const int xlimit = 31;              //declare all 3 limit switches and assign channels
+const int ylimit = 30;
+const int zlimit = 32;
+
+int xstate = 0;                      //state variable for each switch
+int ystate = 0;
+int zstate = 0;
+
+const int motorY = 13;          //declare motor output and direction control
+const int dirY = 12;
+
+const int motorX = 11;          //declare motor output and direction control
+const int dirX = 10;
+
+const int motorZ = 9;          //declare motor output and direction control
+const int dirZ = 8;
+
+int freq = 200;                //sets default motor frequency for tone function
+
+int counterx = 0;
+int countery = 0;
+
+
+void setup()
+{
+  Serial.begin(9600);                    //declare all motor and directional output control
+   pinMode(motorY, OUTPUT);
+  pinMode(dirY, OUTPUT);
+  pinMode(motorX, OUTPUT);
+  pinMode(dirX, OUTPUT);
+  pinMode(motorZ, OUTPUT);
+  pinMode(dirZ, OUTPUT);
+  
+}
+
+void loop()
+{  
+ xstate=digitalRead(xlimit);                          //read all limit switches and store values (will be 0 or 1)
+  ystate=digitalRead(ylimit);
+  //zstate=digitalRead(zlimit);
+  
+  while(xstate == 0 && counterx == 0)            //while the x limit swith is not, and has not, been tripped, enter the loop which moves the x axis until it changes the x limit switch to HIGH
+      {
+        digitalWrite(dirX, HIGH);
+        tone(motorX, freq);
+        xstate=digitalRead(xlimit);
+        Serial.println(xstate);
+      }
+      
+      noTone(motorX);                            //once tripped, exit loop, turn off motor, and change the value of counterx to 1
+      counterx = 1;
+     
+      while(ystate == 0 && countery == 0)        //repeat the same process for Y and Z axes.
+      {
+         digitalWrite(dirY, LOW);
+        tone(motorY, freq);
+        
+        ystate=digitalRead(ylimit);
+        Serial.println(ystate);
+      }
+      
+      noTone(motorY);
+      countery =1;
+    
+     while(zstate == 0)
+      {
+         digitalWrite(dirZ, LOW);
+        tone(motorZ, freq);
+        
+        zstate=digitalRead(zlimit);
+        Serial.println(zstate);
+      }
+      noTone(motorZ);
+ 
+  //Serial.println(xstate);                //used to monitor the individual limit switch states
+  Serial.println(ystate);
+  //Serial.println(zstate);
+  delay(500);
+  
+}
+
+
+/*
+All-Axis Check Program
+This code combines all three individual axis checks. Description of indivudual code sections is the same as the individual code
+*/
+
+const int PotPinY = 0;
+const int PotPinX = 1;
+const int PotPinZ = 2;
+
+const int motorY = 13;          //declare motor output and direction control
+const int dirY = 12;
+
+const int motorX = 11;          //declare motor output and direction control
+const int dirX = 10;
+
+const int motorZ = 9;          //declare motor output and direction control
+const int dirZ = 8;    
+
+const int LEDY = 22;
+const int LEDX = 28;
+const int LEDZ = 26; 
+
+int PotReadingY = 0;
+int PotReadingX = 0;
+int PotReadingZ = 0;
+int freq=500;
+
+const int autoLED = 24;
+const int = buttonPin = 33;
+int buttonstate= 0;
+
+
+void setup()
+{
+  pinMode(LEDY, OUTPUT);
+  pinMode(LEDX, OUTPUT);
+  pinMode(LEDZ, OUTPUT);
+  pinMode(motorY, OUTPUT);
+  pinMode(dirY, OUTPUT);
+  pinMode(motorX, OUTPUT);
+  pinMode(dirX, OUTPUT);
+  pinMode(motorZ, OUTPUT);
+  pinMode(dirZ, OUTPUT); 
+
+  pinMode(autoLED, OUTPUT);
+  pinMode(buttonPin, INPUT);  
+
+}
+
+  void loop()
+ {
+   PotReadingY = analogRead(PotPinY);
+   PotReadingX = analogRead(PotPinX);
+   PotReadingZ = analogRead(PotPinZ);
+   
+   Serial.println(PotReadingY);                      //Y: High=, Low=
+   //Serial.println(PotReadingX);                    //X: High=, Low=
+   //Serial.println(PotReadingZ);                    //Z: High=, Low=
+   
+   if (PotReadingY<400)           
+    {       
+      digitalWrite(dirY, HIGH);
+      tone(motorY, freq); 
+      digitalWrite(LEDY,HIGH);
+      delay(50);
+     
+    }
+    
+     else if(PotReadingY>800)            //if pot turned to right, move to right, turn right directional led to high, reset left limit switch & led to low
+    {
+    
+      digitalWrite(dirY, LOW);
+      tone(motorY, freq);
+      digitalWrite(LEDY,HIGH);
+      delay(50);
+    }
+       else
+    {
+      
+       noTone(motorY);
+       digitalWrite(LEDY, LOW);
+    }
+
+ 
+      
+       
+       
+  if (PotReadingX<400)           
+    {       
+      digitalWrite(dirX, HIGH);
+      tone(motorX, freq); 
+      digitalWrite(LEDX, HIGH);
+      delay(50);
+     
+    }
+    
+     else if(PotReadingX>800)            //if pot turned to right, move to right, turn right directional led to high, reset left limit switch & led to low
+    {
+    
+      digitalWrite(dirX, LOW);
+      tone(motorX, freq);
+      digitalWrite(LEDX, HIGH);
+      delay(50);
+    }
+       else
+    {
+      
+       noTone(motorX);
+       digitalWrite(LEDX, LOW);
+    }
+ 
+      
+      
+      
+      
+  if (PotReadingZ<400)           
+    {       
+      digitalWrite(dirZ, HIGH);
+      tone(motorZ, freq); 
+      digitalWrite(LEDZ,HIGH);
+      delay(50);
+     
+    }
+    
+     else if(PotReadingZ>800)            //if pot turned to right, move to right, turn right directional led to high, reset left limit switch & led to low
+    {
+    
+      digitalWrite(dirZ, LOW);
+      tone(motorZ, freq);
+      digitalWrite(LEDZ,HIGH);
+      delay(50);
+    }
+       else
+    {
+      
+       noTone(motorZ);
+       digitalWrite(LEDZ, LOW);
+    }
+   }   
+
+/*
+Extruder Motor Control Check Program
+This program test the functionality and directionality of the extruder stepper motor. It uses a potentiomenter and an LED to control and indicate direction of current operation
+*/
+
+const int PotPinE = 3;                //Initialize motor inputs from dedicated controller board, output LEDs to indicate direction, pressure sensor under pressure cap to calibration purposes
+const int motorE = 34;  
+const int dirE = 36;
+int LEDE = 22;
+int PotReadingE = 0;                //Extruder direction to be controlled by a potentiometer
+const int Pressure_sensor = 4;
+int Pressure = 0; 
+
+void setup()
+{
+   pinMode(motorE, OUTPUT);                //Declae motor, directional, and LED control as outputs
+  pinMode(dirE, OUTPUT);
+  pinMode(LEDE, OUTPUT);
+  Serial.begin(9600);
+}
+
+void loop()
+{
+  
+  
+  Pressure = analogRead(Pressure_sensor);        //Read pressure sensor and store and print in variable.
+  Serial.println(Pressure);
+  PotReadingE = analogRead(PotPinE);            //read potentiometer position to directional control
+ Serial.println(PotReadingE);
+
+
+
+
+
+if (PotReadingE<400)                         //if pot is turned on way, turn extruder head that way, if turned the other, rotate the extruder the other, if in center, do nothing.
+    {       
+     digitalWrite(motorE, LOW);
+     digitalWrite(LEDE, HIGH);
+      
+    }
+    
+     else if(PotReadingE>800)            //if pot turned to right, move to right, turn right directional led to high, reset left limit switch & led to low
+    {
+    
+      digitalWrite(LEDE, HIGH);
+      digitalWrite(motorE, LOW);
+    }
+       else
+    {
+      
+       digitalWrite(motorE, HIGH);
+       digitalWrite(LEDE, LOW);
+    }
+}
+
+
+
+/*
+  Toggle Button Test Program
+  LED goes on when button pressed and off when pressed again.
+  In other words a low to high transition causes the LED to toggle 
+  Pushbutton wired to go high when pressed and low when released
+ 
+ Arduino Resources Used:
+ PWM pin 6, digital output, LED
+ PWM pin 2, digital input, pushbutton
+ */
+ 
+const int buttonPin = 2;    
+const int ledPin =  6;     
+
+int buttonState = LOW;         
+int previousButtonState = LOW;     
+int ledState = HIGH;            
+
+void setup()
+{
+  pinMode(ledPin, OUTPUT);      
+  pinMode(buttonPin, INPUT);     
+}
+
+void loop()
+{
+  buttonState = digitalRead(buttonPin);
+
+  if (buttonState == HIGH && previousButtonState == LOW)
+  {
+    digitalWrite(ledPin, ledState);  
+    
+    if (ledState == LOW)
+    {
+      ledState = HIGH;
+    }
+    else
+    {
+      ledState = LOW;
+    }
+   } 
+   previousButtonState = buttonState;
+}
+
